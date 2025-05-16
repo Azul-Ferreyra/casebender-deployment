@@ -1,0 +1,26 @@
+# Ignorar archivos .env con datos sensibles
+.env
+
+# Ignorar datos de volúmenes y bases de datos locales
+pgdata/
+redis_data/
+miniodata/
+misp_data/
+misp_mysql_data/
+cortex_data/
+esdata/
+
+# Ignorar logs y temporales
+*.log
+*.tmp
+
+# Ignorar archivos del sistema y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Ignorar archivos de certificados privados
+*.key
+*.pem
+.env

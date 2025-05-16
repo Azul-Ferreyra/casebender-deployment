@@ -1,0 +1,155 @@
+services:
+  app:
+    image: casebender/casebender:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_SALT=${AUTH_SALT}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-https://local.casebender.com}
+      - NEXTAPP_URL=${NEXTAPP_URL:-https://local.casebender.com}
+      - LIVEBLOCKS_SECRET_KEY=${LIVEBLOCKS_SECRET_KEY}
+      - POSTGRES_PRISMA_URL=${POSTGRES_PRISMA_URL}
+      - POSTGRES_URL=${POSTGRES_URL}
+      - POSTGRES_URL_NON_POOLING=${POSTGRES_URL_NON_POOLING}
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  db:
+    image: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: casebender
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  workflow-processor:
+    image: casebender/workflow-processor:latest
+    ports:
+      - "3001:3001"
+    environment:
+      - POSTGRES_PRISMA_URL=${POSTGRES_PRISMA_URL}
+      - POSTGRES_URL=${POSTGRES_URL}
+      - POSTGRES_URL_NON_POOLING=${POSTGRES_URL_NON_POOLING}
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - db
+      - redis
+
+  misp-processor:
+    image: casebender/misp-processor:latest
+    ports:
+      - "3002:3002"
+    environment:
+      - POSTGRES_PRISMA_URL=${POSTGRES_PRISMA_URL}
+      - POSTGRES_URL=${POSTGRES_URL}
+      - POSTGRES_URL_NON_POOLING=${POSTGRES_URL_NON_POOLING}
+      - REDIS_URL=${REDIS_URL}
+    depends_on:
+      - db
+      - redis
+
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --protected-mode no
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  minio:
+    image: quay.io/minio/minio
+    mem_limit: 512m
+    command: ["minio", "server", "/data", "--console-address", ":9090"]
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9090:9090"
+      - "9000:9000"
+    volumes:
+      - miniodata:/data
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./local-casebender.crt:/etc/nginx/certs/local-casebender.crt:ro
+      - ./local-casebender.key:/etc/nginx/certs/local-casebender.key:ro
+    depends_on:
+      - app
+
+  cortex:
+    image: thehiveproject/cortex:3.1.1
+    ports:
+      - "9001:9001"
+    environment:
+      - JOB_DIRECTORY=/opt/cortex/jobs
+      - CONFIG_FILE=/etc/cortex/application.conf
+      - ES_URI=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    volumes:
+      - cortex_data:/opt/cortex
+    restart: unless-stopped
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.10
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    restart: unless-stopped
+
+  misp_mysql:
+    image: mysql:5.7
+    restart: unless-stopped
+    volumes:
+      - misp_mysql_data:/var/lib/mysql
+    environment:
+      - MYSQL_DATABASE=mispdb
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+
+  misp:
+    image: coolacid/misp-docker:core-latest
+    restart: unless-stopped
+    depends_on:
+      - misp_mysql
+    ports:
+      - "8443:443"
+    volumes:
+      - misp_data:/var/www/MISP
+    environment:
+      - MYSQL_HOST=misp_mysql
+      - MYSQL_DATABASE=mispdb
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MISP_ADMIN_EMAIL=${MISP_ADMIN_EMAIL}
+      - MISP_ADMIN_PASSPHRASE=${MISP_ADMIN_PASSPHRASE}
+      - MISP_BASEURL=https://localhost:8443
+      - TIMEZONE=Europe/London
+      - INIT=true
+      - CRON_USER_ID=1
+      - REDIS_FQDN=redis
+
+volumes:
+  misp_data:
+  misp_mysql_data:
+  pgdata:
+  redis_data:
+  miniodata:
+  cortex_data:
+  esdata:
